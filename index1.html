@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neurosynth Search Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Header -->
+    <header class="gradient-bg text-white shadow-lg">
+        <div class="container mx-auto px-4 py-6">
+            <h1 class="text-3xl font-bold">🧠 Neurosynth Search</h1>
+            <p class="text-purple-100 mt-2">Real-time neural imaging research database</p>
+        </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <div class="container mx-auto px-4 mt-6">
+        <div class="bg-white rounded-lg shadow-md p-2 flex gap-2">
+            <button id="termsTab" class="flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-purple-600 text-white">
+                📚 Terms Search
+            </button>
+            <button id="studiesTab" class="flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-gray-100 text-gray-700 hover:bg-gray-200">
+                🔬 Studies Search
+            </button>
+        </div>
+    </div>
+
+    <!-- Terms Section -->
+    <div id="termsSection" class="container mx-auto px-4 mt-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex gap-2 mb-6">
+                <div class="flex-1 relative">
+                    <input 
+                        type="text" 
+                        id="termsInput" 
+                        placeholder="Type to search terms (e.g., amygdala)..." 
+                        class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                    >
+                    <span class="absolute right-3 top-3 text-gray-400">🔍</span>
+                </div>
+                <button id="termsSearchBtn" class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all font-semibold">
+                    Search Related
+                </button>
+            </div>
+
+            <div id="termsStatus" class="text-sm text-gray-500 mb-4"></div>
+            
+            <!-- Related Terms Section (initially hidden) -->
+            <div id="relatedTermsSection" class="hidden mb-6 p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+                <h3 class="text-lg font-bold text-purple-900 mb-3">🔗 Related Terms</h3>
+                <div id="relatedTermsList" class="flex flex-wrap gap-2"></div>
+            </div>
+
+            <div id="termsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+            <div id="termsLoading" class="hidden text-center py-8">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                <p class="text-gray-600 mt-2">Loading terms...</p>
+            </div>
+            <div id="termsError" class="hidden text-center py-8 text-red-600"></div>
+        </div>
+    </div>
+
+    <!-- Studies Section -->
+    <div id="studiesSection" class="container mx-auto px-4 mt-6 hidden">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex gap-2 mb-6">
+                <div class="flex-1 relative">
+                    <input 
+                        type="text" 
+                        id="studiesInput" 
+                        placeholder="Type to search studies (e.g., emotion, memory)..." 
+                        class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-500 focus:outline-none"
+                    >
+                    <span class="absolute right-3 top-3 text-gray-400">🔍</span>
+                </div>
+            </div>
+
+            <div id="studiesStatus" class="text-sm text-gray-500 mb-4"></div>
+            <div id="studiesList" class="space-y-4"></div>
+            <div id="studiesLoading" class="hidden text-center py-8">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                <p class="text-gray-600 mt-2">Loading studies...</p>
+            </div>
+            <div id="studiesError" class="hidden text-center py-8 text-red-600"></div>
+        </div>
+    </div>
+
+    <footer class="container mx-auto px-4 py-8 mt-12 text-center text-gray-500">
+        <p>Backend API: mil.psy.ntu.edu.tw:5000</p>
+    </footer>
+
+    <script>
+        const API_BASE = 'https://mil.psy.ntu.edu.tw:5000';
+        let termsDebounceTimer;
+        let studiesDebounceTimer;
+
+        // Tab switching
+        const termsTab = document.getElementById('termsTab');
+        const studiesTab = document.getElementById('studiesTab');
+        const termsSection = document.getElementById('termsSection');
+        const studiesSection = document.getElementById('studiesSection');
+
+        termsTab.addEventListener('click', () => {
+            termsTab.className = 'flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-purple-600 text-white';
+            studiesTab.className = 'flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-gray-100 text-gray-700 hover:bg-gray-200';
+            termsSection.classList.remove('hidden');
+            studiesSection.classList.add('hidden');
+        });
+
+        studiesTab.addEventListener('click', () => {
+            studiesTab.className = 'flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-purple-600 text-white';
+            termsTab.className = 'flex-1 py-3 px-6 rounded-md font-semibold transition-all bg-gray-100 text-gray-700 hover:bg-gray-200';
+            studiesSection.classList.remove('hidden');
+            termsSection.classList.add('hidden');
+            if (!document.getElementById('studiesInput').value) {
+                loadInitialStudies();
+            }
+        });
+
+        // Terms functionality
+        async function loadAllTerms() {
+            const loading = document.getElementById('termsLoading');
+            const list = document.getElementById('termsList');
+            const error = document.getElementById('termsError');
+            const status = document.getElementById('termsStatus');
+
+            loading.classList.remove('hidden');
+            list.innerHTML = '';
+            error.classList.add('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE}/terms`);
+                if (!response.ok) throw new Error('Failed to fetch terms');
+                const data = await response.json();
+                
+                const terms = Array.isArray(data) ? data : Object.keys(data);
+                const first10 = terms.slice(0, 10);
+                
+                status.textContent = `Showing ${first10.length} of ${terms.length} terms`;
+                displayTerms(first10);
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.classList.remove('hidden');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        async function searchTerms(query) {
+            if (!query.trim()) {
+                loadAllTerms();
+                document.getElementById('relatedTermsSection').classList.add('hidden');
+                return;
+            }
+
+            const loading = document.getElementById('termsLoading');
+            const list = document.getElementById('termsList');
+            const error = document.getElementById('termsError');
+            const status = document.getElementById('termsStatus');
+
+            loading.classList.remove('hidden');
+            list.innerHTML = '';
+            error.classList.add('hidden');
+            document.getElementById('relatedTermsSection').classList.add('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE}/terms`);
+                if (!response.ok) throw new Error('Failed to fetch terms');
+                const data = await response.json();
+                
+                const terms = Array.isArray(data) ? data : Object.keys(data);
+                const filtered = terms.filter(term => 
+                    term.toLowerCase().includes(query.toLowerCase())
+                ).slice(0, 10);
+                
+                status.textContent = `Found ${filtered.length} matching terms`;
+                displayTerms(filtered);
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.classList.remove('hidden');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        async function loadRelatedTerms(term) {
+            const relatedSection = document.getElementById('relatedTermsSection');
+            const relatedList = document.getElementById('relatedTermsList');
+            const error = document.getElementById('termsError');
+
+            relatedList.innerHTML = '<div class="text-gray-500">Loading related terms...</div>';
+            relatedSection.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`${API_BASE}/terms/${encodeURIComponent(term)}`);
+                if (!response.ok) throw new Error('Failed to fetch related terms');
+                const data = await response.json();
+                
+                relatedList.innerHTML = '';
+                
+                if (data && typeof data === 'object') {
+                    const relatedTerms = Object.keys(data).slice(0, 20);
+                    if (relatedTerms.length === 0) {
+                        relatedList.innerHTML = '<span class="text-gray-500">No related terms found</span>';
+                    } else {
+                        relatedTerms.forEach(relatedTerm => {
+                            const badge = document.createElement('span');
+                            badge.className = 'px-3 py-1 bg-purple-200 text-purple-800 rounded-full text-sm font-medium hover:bg-purple-300 cursor-pointer transition-all';
+                            badge.textContent = relatedTerm;
+                            badge.addEventListener('click', () => {
+                                document.getElementById('termsInput').value = relatedTerm;
+                                searchTerms(relatedTerm);
+                            });
+                            relatedList.appendChild(badge);
+                        });
+                    }
+                }
+            } catch (err) {
+                relatedList.innerHTML = `<span class="text-red-600">Error loading related terms: ${err.message}</span>`;
+            }
+        }
+
+        function displayTerms(terms) {
+            const list = document.getElementById('termsList');
+            list.innerHTML = '';
+            
+            terms.forEach((term, index) => {
+                const card = document.createElement('div');
+                card.className = 'p-4 bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg hover:shadow-md transition-all cursor-pointer border border-purple-200 fade-in';
+                card.style.animationDelay = `${index * 0.05}s`;
+                card.innerHTML = `
+                    <div class="font-semibold text-purple-900">${term}</div>
+                `;
+                card.addEventListener('click', () => {
+                    document.getElementById('termsInput').value = term;
+                    loadRelatedTerms(term);
+                });
+                list.appendChild(card);
+            });
+        }
+
+        // Studies functionality
+        async function loadInitialStudies() {
+            searchStudies('');
+        }
+
+        async function searchStudies(query) {
+            const loading = document.getElementById('studiesLoading');
+            const list = document.getElementById('studiesList');
+            const error = document.getElementById('studiesError');
+            const status = document.getElementById('studiesStatus');
+
+            loading.classList.remove('hidden');
+            list.innerHTML = '';
+            error.classList.add('hidden');
+
+            const searchQuery = query.trim() || 'brain';
+
+            try {
+                const response = await fetch(`${API_BASE}/query/${encodeURIComponent(searchQuery)}/studies`);
+                if (!response.ok) throw new Error('Failed to fetch studies');
+                const data = await response.json();
+                
+                const studies = data.results || [];
+                const displayStudies = studies.slice(0, 10);
+                
+                status.textContent = `Showing ${displayStudies.length} of ${data.count || studies.length} studies`;
+                displayStudiesList(displayStudies);
+            } catch (err) {
+                error.textContent = `Error: ${err.message}`;
+                error.classList.remove('hidden');
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        function displayStudiesList(studies) {
+            const list = document.getElementById('studiesList');
+            list.innerHTML = '';
+            
+            if (studies.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-500 py-8">No studies found</div>';
+                return;
+            }
+
+            studies.forEach((study, index) => {
+                const card = document.createElement('div');
+                card.className = 'p-5 bg-white rounded-lg border-2 border-gray-200 hover:border-purple-400 hover:shadow-lg transition-all fade-in';
+                card.style.animationDelay = `${index * 0.05}s`;
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="text-lg font-bold text-gray-900 flex-1">${study.title}</h3>
+                        <span class="ml-2 px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-semibold">${study.year || 'N/A'}</span>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">👥 ${study.authors || 'Unknown authors'}</p>
+                    <p class="text-sm text-gray-500 mb-2">📖 ${study.journal || 'Unknown journal'}</p>
+                    <div class="flex gap-2 mt-3">
+                        <span class="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">Study ID: ${study.study_id}</span>
+                        <span class="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">Contrast: ${study.contrast_id}</span>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        // Event listeners
+        document.getElementById('termsInput').addEventListener('input', (e) => {
+            clearTimeout(termsDebounceTimer);
+            termsDebounceTimer = setTimeout(() => {
+                searchTerms(e.target.value);
+            }, 300);
+        });
+
+        document.getElementById('termsInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const term = e.target.value.trim();
+                if (term) {
+                    loadRelatedTerms(term);
+                }
+            }
+        });
+
+        document.getElementById('termsSearchBtn').addEventListener('click', () => {
+            const term = document.getElementById('termsInput').value.trim();
+            if (term) {
+                loadRelatedTerms(term);
+            }
+        });
+
+        document.getElementById('studiesInput').addEventListener('input', (e) => {
+            clearTimeout(studiesDebounceTimer);
+            studiesDebounceTimer = setTimeout(() => {
+                searchStudies(e.target.value);
+            }, 300);
+        });
+
+        // Initialize
+        loadAllTerms();
+    </script>
+</body>
+</html>
