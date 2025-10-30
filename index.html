@@ -4,50 +4,63 @@
   <meta charset="UTF-8" />
   <title>SunYun's Mini Neurosynth Explorer</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background-color: #444; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background-color: #666; }
+
+    #autocompleteList div {
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    #autocompleteList div:hover {
+      background-color: #555;
+    }
+  </style>
 </head>
+
 <body class="bg-black text-gray-100 min-h-screen flex flex-col font-sans">
-  <!-- Header -->
   <header class="bg-gray-900 text-gray-200 p-4 text-center text-xl font-semibold tracking-wide border-b border-gray-700">
     SunYun's Mini Neurosynth Explorer
   </header>
 
-  <!-- Main -->
-  <main class="flex flex-col items-center p-8 space-y-8">
-    
-    <!-- Mode Switch -->
+  <main class="flex flex-col items-center p-8 space-y-8 flex-grow">
+    <!-- Mode Buttons -->
     <div class="flex space-x-4">
-      <button id="termMode" class="px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition">
-        Terms
-      </button>
-      <button id="studyMode" class="px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition">
-        Studies
-      </button>
+      <button id="termMode" class="px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition">Terms</button>
+      <button id="studyMode" class="px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition">Studies</button>
     </div>
 
-    <!-- Help Text -->
-    <div id="helpText" class="text-gray-400 text-sm text-center max-w-md">
-      🔍 輸入一個心理學或神經影像關鍵字，搜尋相關的 terms。
+    <!-- Help text -->
+    <div id="helpText" class="text-gray-400 text-sm text-center max-w-md leading-relaxed">
+      🔍 輸入一個心理學或神經影像關鍵字，搜尋相關的 terms。<br>
+      🖱️ 點擊 term 可查找與該詞相關的其他 terms。
     </div>
 
-    <!-- Search Bar -->
-    <div class="w-full max-w-md flex space-x-2">
-      <input id="searchInput" type="text" placeholder="Search..." 
+    <!-- Search Input -->
+    <div class="w-full max-w-md flex flex-col relative">
+      <input id="searchInput" type="text" placeholder="Search..."
         class="flex-1 bg-gray-800 text-gray-100 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-gray-300 outline-none placeholder-gray-500">
-      <button id="searchBtn" 
-        class="bg-gray-200 text-gray-900 px-4 py-2 rounded hover:bg-gray-300 transition">
+      <div id="autocompleteList" class="text-gray-400 text-sm mt-1"></div>
+      <button id="searchBtn" class="bg-gray-200 text-gray-900 px-4 py-2 rounded hover:bg-gray-300 transition mt-2">
         Search
       </button>
     </div>
 
-    <!-- Results -->
-    <div id="resultContainer" class="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg p-4 border border-gray-700">
-      <h2 id="resultTitle" class="text-lg font-semibold mb-3 text-gray-300 border-b border-gray-700 pb-2">Terms</h2>
+    <!-- Related Terms -->
+    <div id="relatedTermsContainer" class="w-full max-w-4xl flex flex-wrap gap-2 mt-4"></div>
 
-      <!-- Table -->
-      <table class="w-full text-left border-collapse">
-        <thead id="tableHeader" class="border-b border-gray-700 text-gray-400 text-sm uppercase tracking-wider"></thead>
-        <tbody id="resultList"></tbody>
-      </table>
+    <!-- Results -->
+    <div id="resultContainer" class="w-full max-w-4xl bg-gray-900 rounded-lg shadow-lg p-4 border border-gray-700 flex flex-col flex-grow mt-4">
+      <h2 id="resultTitle" class="text-lg font-semibold mb-3 text-gray-300 border-b border-gray-700 pb-2">Results</h2>
+      <div class="overflow-y-auto flex-grow max-h-[50vh]">
+        <table class="w-full text-left border-collapse">
+          <thead id="tableHeader" class="border-b border-gray-700 text-gray-400 text-sm uppercase tracking-wider"></thead>
+          <tbody id="resultList"></tbody>
+        </table>
+      </div>
+      <div id="countInfo" class="text-gray-500 text-sm mt-3 text-right italic"></div>
     </div>
   </main>
 
@@ -56,185 +69,156 @@
   </footer>
 
   <script>
-    const API_BASE = "https://hpc.psy.ntu.edu.tw:5000"
-    let mode = "terms"
-    let allItems = []
-    let debounceTimer
+    const API_BASE = "https://hpc.psy.ntu.edu.tw:5000";
+    let mode = "terms";
+    let allItems = [];
 
-    const termBtn = document.getElementById("termMode")
-    const studyBtn = document.getElementById("studyMode")
-    const searchInput = document.getElementById("searchInput")
-    const searchBtn = document.getElementById("searchBtn")
-    const resultList = document.getElementById("resultList")
-    const resultTitle = document.getElementById("resultTitle")
-    const tableHeader = document.getElementById("tableHeader")
-    const helpText = document.getElementById("helpText")
+    const termBtn = document.getElementById("termMode");
+    const studyBtn = document.getElementById("studyMode");
+    const searchInput = document.getElementById("searchInput");
+    const searchBtn = document.getElementById("searchBtn");
+    const resultList = document.getElementById("resultList");
+    const resultTitle = document.getElementById("resultTitle");
+    const tableHeader = document.getElementById("tableHeader");
+    const helpText = document.getElementById("helpText");
+    const countInfo = document.getElementById("countInfo");
+    const relatedTermsContainer = document.getElementById("relatedTermsContainer");
+    const autocompleteList = document.getElementById("autocompleteList");
 
-    // Mode switch
-    termBtn.onclick = () => switchMode("terms")
-    studyBtn.onclick = () => switchMode("studies")
+    // --- Mode Switch ---
+    termBtn.onclick = () => switchMode("terms");
+    studyBtn.onclick = () => switchMode("studies");
 
     function switchMode(m) {
-      mode = m
+      mode = m;
+      countInfo.textContent = "";
+      relatedTermsContainer.innerHTML = "";
+      autocompleteList.innerHTML = "";
+      resultList.innerHTML = "";
+      searchInput.value = "";
 
       if (m === "terms") {
-        termBtn.className = "px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition"
-        studyBtn.className = "px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition"
-        resultTitle.textContent = "Terms"
-        helpText.innerHTML = "🔍 輸入一個心理學或神經影像關鍵字，搜尋相關的 terms。<br><small class='text-gray-500'>即時過濾 | 按 Enter 或 Search 查詢相關 terms</small>"
-        tableHeader.innerHTML = `<tr><th class="p-2">Term</th></tr>`
-        fetchTerms()
+        termBtn.className = "px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition";
+        studyBtn.className = "px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition";
+        helpText.innerHTML = "🔍 輸入一個心理學或神經影像關鍵字，搜尋相關的 terms。";
+        tableHeader.innerHTML = `<tr><th class='p-2 w-1/2'>Title</th><th class='p-2'>Authors</th><th class='p-2'>Journal</th><th class='p-2'>Year</th></tr>`;
+        fetchTerms();
+        searchInput.removeEventListener("input", debouncedStudySearch);
+        searchInput.addEventListener("input", debouncedTermAutocomplete);
       } else {
-        studyBtn.className = "px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition"
-        termBtn.className = "px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition"
-        resultTitle.textContent = "Studies"
-        helpText.innerHTML = "📚 輸入關鍵字，即時搜尋相關研究的內容。"
-        tableHeader.innerHTML = `<tr><th class="p-2 w-1/2">Title</th><th class="p-2">Authors</th><th class="p-2">Journal</th><th class="p-2">Year</th></tr>`
-        fetchInitialStudies()
+        studyBtn.className = "px-4 py-2 rounded bg-gray-200 text-gray-900 font-medium hover:bg-gray-300 transition";
+        termBtn.className = "px-4 py-2 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 transition";
+        helpText.innerHTML = "📚 可輸入單一詞或邏輯查詢（如 emotion AND memory, vision NOT motor）。";
+        tableHeader.innerHTML = `<tr><th class='p-2 w-1/2'>Title</th><th class='p-2'>Authors</th><th class='p-2'>Journal</th><th class='p-2'>Year</th></tr>`;
+        relatedTermsContainer.innerHTML = "";
+        searchInput.removeEventListener("input", debouncedTermAutocomplete);
+        searchInput.addEventListener("input", debouncedStudySearch);
       }
-      searchInput.value = ""
     }
 
-    // Fetch terms from /terms
+    // --- Debounce ---
+    function debounce(func, delay = 400) {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), delay);
+      };
+    }
+
+    // --- Term Autocomplete ---
+    const debouncedTermAutocomplete = debounce(() => {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) return (autocompleteList.innerHTML = "");
+      const suggestions = allItems.filter(t => t.toLowerCase().includes(q)).slice(0, 10);
+      autocompleteList.innerHTML = suggestions.map(s => `<div onclick="searchAndShowTerms('${s}')">${s}</div>`).join("");
+    }, 200);
+
+    // --- Study Search ---
+    const debouncedStudySearch = debounce(() => {
+      const q = searchInput.value.trim();
+      if (q) searchStudies(q);
+    }, 600);
+
+    // --- Fetch All Terms ---
     async function fetchTerms() {
-      resultList.innerHTML = "<tr><td class='p-2 text-gray-500'>Loading...</td></tr>"
       try {
-        const res = await fetch(`${API_BASE}/terms`)
-        if (!res.ok) throw new Error('Failed to fetch terms')
-        const data = await res.json()
-        allItems = Array.isArray(data) ? data : Object.keys(data)
-        // Sort alphabetically and show first 10
-        allItems.sort((a, b) => a.localeCompare(b))
-        renderTerms(allItems.slice(0, 10))
+        const res = await fetch(`${API_BASE}/terms`);
+        const data = await res.json();
+        allItems = data.terms || Object.keys(data);
       } catch (err) {
-        resultList.innerHTML = `<tr><td class='p-2 text-red-400'>Error: ${err.message}</td></tr>`
+        console.error(err);
       }
     }
 
-    // Fetch initial studies (default query)
-    async function fetchInitialStudies() {
-      searchStudies('brain')
+    // --- Search & Show Terms and Studies ---
+    async function searchAndShowTerms(term) {
+      searchInput.value = term;
+      autocompleteList.innerHTML = "";
+      resultTitle.textContent = `Results for "${term}"`;
+
+      try {
+        // 顯示相關 terms
+        const res = await fetch(`${API_BASE}/terms/${encodeURIComponent(term)}`);
+        const data = await res.json();
+        const related = data.related?.map(i => i.term || i) || [];
+        const topRelated = related.slice(0, 20);
+        relatedTermsContainer.innerHTML = topRelated
+          .map(t => `<button class="bg-gray-700 text-gray-100 px-3 py-1 rounded hover:bg-gray-600 transition" onclick="searchAndShowTerms('${t}')">${t}</button>`)
+          .join("");
+
+        // 顯示相關 studies
+        await showStudies(term);
+      } catch (err) {
+        console.error(err);
+      }
     }
 
-    // Search studies from /query/<q>/studies
+    // --- Show Studies ---
+    async function showStudies(term) {
+      resultTitle.textContent = `Studies for "${term}"`;
+      resultList.innerHTML = "<tr><td colspan='4' class='p-2 text-gray-500'>Loading...</td></tr>";
+
+      try {
+        const res = await fetch(`${API_BASE}/query/${encodeURIComponent(term)}/studies`);
+        const data = await res.json();
+        const studies = data.results || [];
+        resultList.innerHTML = studies.map(s => `
+          <tr class="hover:bg-gray-800 transition border-b border-gray-800">
+            <td class="p-2 text-gray-100">${s.title || 'N/A'}</td>
+            <td class="p-2 text-gray-400 text-sm">${s.authors || 'N/A'}</td>
+            <td class="p-2 text-gray-400 text-sm">${s.journal || 'N/A'}</td>
+            <td class="p-2 text-gray-400">${s.year || 'N/A'}</td>
+          </tr>`).join("");
+        countInfo.textContent = `共 ${studies.length} 筆資料`;
+      } catch (err) {
+        resultList.innerHTML = `<tr><td colspan='4' class='p-2 text-red-400'>Error: ${err.message}</td></tr>`;
+      }
+    }
+
+    // --- Logical Search for Studies ---
     async function searchStudies(query) {
-      resultList.innerHTML = "<tr><td colspan='4' class='p-2 text-gray-500'>Loading...</td></tr>"
+      resultTitle.textContent = `Studies for "${query}"`;
+      resultList.innerHTML = "<tr><td colspan='4' class='p-2 text-gray-500'>Loading...</td></tr>";
+
       try {
-        const res = await fetch(`${API_BASE}/query/${encodeURIComponent(query)}/studies`)
-        if (!res.ok) throw new Error('Failed to fetch studies')
-        const data = await res.json()
-        const studies = data.results || []
-        renderStudies(studies.slice(0, 10))
+        const res = await fetch(`${API_BASE}/query/${encodeURIComponent(query)}/studies`);
+        const data = await res.json();
+        const studies = data.results || [];
+        resultList.innerHTML = studies.map(s => `
+          <tr class="hover:bg-gray-800 transition border-b border-gray-800">
+            <td class="p-2 text-gray-100">${s.title || 'N/A'}</td>
+            <td class="p-2 text-gray-400 text-sm">${s.authors || 'N/A'}</td>
+            <td class="p-2 text-gray-400 text-sm">${s.journal || 'N/A'}</td>
+            <td class="p-2 text-gray-400">${s.year || 'N/A'}</td>
+          </tr>`).join("");
+        countInfo.textContent = `共 ${studies.length} 筆資料`;
       } catch (err) {
-        resultList.innerHTML = `<tr><td colspan='4' class='p-2 text-red-400'>Error: ${err.message}</td></tr>`
+        resultList.innerHTML = `<tr><td colspan='4' class='p-2 text-red-400'>Error: ${err.message}</td></tr>`;
       }
     }
 
-    // Fetch related terms from /terms/<term>
-    async function fetchRelatedTerms(term) {
-      resultList.innerHTML = "<tr><td class='p-2 text-gray-500'>Loading related terms...</td></tr>"
-      try {
-        const res = await fetch(`${API_BASE}/terms/${encodeURIComponent(term)}`)
-        if (!res.ok) throw new Error('Failed to fetch related terms')
-        const data = await res.json()
-        
-        if (data && typeof data === 'object') {
-          const relatedTerms = Object.keys(data)
-          if (relatedTerms.length === 0) {
-            resultList.innerHTML = "<tr><td class='p-2 text-gray-500 italic'>No related terms found.</td></tr>"
-          } else {
-            renderTerms(relatedTerms.slice(0, 20))
-          }
-        } else {
-          resultList.innerHTML = "<tr><td class='p-2 text-gray-500 italic'>No related terms found.</td></tr>"
-        }
-      } catch (err) {
-        resultList.innerHTML = `<tr><td class='p-2 text-red-400'>Error: ${err.message}</td></tr>`
-      }
-    }
-
-    // Real-time search input - IMMEDIATE for terms, debounced for studies
-    searchInput.addEventListener("input", e => {
-      const query = e.target.value.toLowerCase().trim()
-      
-      if (mode === "terms") {
-        // IMMEDIATE filtering for terms (no debounce)
-        if (!query) {
-          renderTerms(allItems.slice(0, 10))
-        } else {
-          const filtered = allItems.filter(i => i.toLowerCase().includes(query))
-          renderTerms(filtered.slice(0, 10))
-        }
-      } else {
-        // Debounced search for studies
-        clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
-          if (query) {
-            searchStudies(query)
-          } else {
-            fetchInitialStudies()
-          }
-        }, 300)
-      }
-    })
-
-    // Enter key or Search button
-    searchInput.addEventListener("keypress", e => {
-      if (e.key === "Enter") {
-        doSearch()
-      }
-    })
-    searchBtn.onclick = doSearch
-
-    async function doSearch() {
-      const q = searchInput.value.trim()
-      if (!q) return
-
-      if (mode === "terms") {
-        // Fetch related terms
-        fetchRelatedTerms(q)
-      } else {
-        // Search studies
-        searchStudies(q)
-      }
-    }
-
-    // Renderers
-    function renderTerms(items) {
-      if (!items || items.length === 0) {
-        resultList.innerHTML = "<tr><td class='p-2 text-gray-500 italic'>No results.</td></tr>"
-        return
-      }
-      resultList.innerHTML = items.map(i => `
-        <tr class="hover:bg-gray-800 transition border-b border-gray-800 cursor-pointer" onclick="selectTerm('${i.replace(/'/g, "\\'")}')">
-          <td class="p-2">${i}</td>
-        </tr>
-      `).join("")
-    }
-
-    function renderStudies(items) {
-      if (!items || items.length === 0) {
-        resultList.innerHTML = "<tr><td colspan='4' class='p-2 text-gray-500 italic'>No results.</td></tr>"
-        return
-      }
-      resultList.innerHTML = items.map(s => `
-        <tr class="hover:bg-gray-800 transition border-b border-gray-800">
-          <td class="p-2 text-gray-100">${s.title || 'N/A'}</td>
-          <td class="p-2 text-gray-400 text-sm">${s.authors || 'N/A'}</td>
-          <td class="p-2 text-gray-400 text-sm">${s.journal || 'N/A'}</td>
-          <td class="p-2 text-gray-400">${s.year || 'N/A'}</td>
-        </tr>
-      `).join("")
-    }
-
-    // Click on term to search related
-    function selectTerm(term) {
-      searchInput.value = term
-      fetchRelatedTerms(term)
-    }
-
-    // Initial load
-    switchMode("terms")
+    // --- Init ---
+    switchMode("terms");
   </script>
 </body>
 </html>
